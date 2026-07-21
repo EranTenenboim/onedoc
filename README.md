@@ -11,30 +11,7 @@ Self-contained Python **3.13+** service with an HTTP API, async LLM workers, int
 
 ---
 
-## Install and run (fastest)
-
-From the project root:
-
-```bash
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
-```
-
-This script:
-
-1. Creates a Python 3.13 virtualenv (`.venv`) if needed  
-2. Installs the package  
-3. Creates `.env` from `.env.example` if missing  
-4. Creates the `logs/` folder  
-5. Starts the server  
-
-Open: **http://localhost:8000**
-
-Stop the server with `Ctrl+C`.
-
----
-
-## Install and run (manual)
+## Install and run
 
 ### 1. Install Python 3.13 (if needed)
 
@@ -110,6 +87,8 @@ Health check:
 curl http://localhost:8000/health
 ```
 
+Stop with `Ctrl+C`.
+
 ---
 
 ## Verify with the API
@@ -164,12 +143,12 @@ Set these in `.env` (see `.env.example`):
 ## Project layout
 
 ```
-scripts/deploy.sh      # Install + run helper
 src/medical_chat/      # Application code
 static/index.html      # Simple UI
 tests/                 # pytest tests
 .env.example           # Config template
-docs/architecture.pdf  # Architecture overview (optional)
+docs/architecture.pdf  # Architecture overview
+.cursor/skills/        # Project coding standards
 ```
 
 ---
