@@ -4,12 +4,18 @@ from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from medical_chat.config import Settings
 from medical_chat.guardrails import validate_medical_question
 from medical_chat.models import MessageStatus
 from medical_chat.rate_limit import RateLimiter
+from medical_chat.sanitization import (
+    InputValidationError,
+    sanitize_optional_conversation_id,
+    sanitize_question,
+    parse_uuid,
+)
 from medical_chat.statistics import StatisticsCollector
 from medical_chat.storage import MessageQueue, MessageStore
 from medical_chat.stream_hub import StreamHub
@@ -19,6 +25,22 @@ from medical_chat.worker_pool import WorkerPool
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     conversationId: str | None = None
+
+    @field_validator("question")
+    @classmethod
+    def _clean_question(cls, value: str) -> str:
+        try:
+            return sanitize_question(value)
+        except InputValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("conversationId")
+    @classmethod
+    def _clean_conversation_id(cls, value: str | None) -> str | None:
+        try:
+            return sanitize_optional_conversation_id(value)
+        except InputValidationError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class ChatSubmitResponse(BaseModel):
@@ -87,7 +109,8 @@ def create_router(state: AppState) -> APIRouter:
 
     @router.get("/chat/{message_id}")
     async def get_chat(message_id: str):
-        message = state.store.get(message_id)
+        safe_id = _require_message_id(message_id)
+        message = state.store.get(safe_id)
         if message is None:
             raise HTTPException(status_code=404, detail="Message not found")
 
@@ -105,7 +128,8 @@ def create_router(state: AppState) -> APIRouter:
 
     @router.get("/chat/{message_id}/stream")
     async def stream_chat(message_id: str):
-        message = state.store.get(message_id)
+        safe_id = _require_message_id(message_id)
+        message = state.store.get(safe_id)
         if message is None:
             raise HTTPException(status_code=404, detail="Message not found")
 
@@ -117,7 +141,7 @@ def create_router(state: AppState) -> APIRouter:
                 yield _sse("error", message.error or "Unknown error")
                 return
 
-            queue = await state.stream_hub.subscribe(message_id)
+            queue = await state.stream_hub.subscribe(safe_id)
             while True:
                 event = await queue.get()
                 if event is None:
@@ -143,6 +167,14 @@ def create_router(state: AppState) -> APIRouter:
     return router
 
 
+def _require_message_id(message_id: str) -> str:
+    try:
+        return parse_uuid(message_id, field_name="messageId")
+    except InputValidationError as exc:
+        raise HTTPException(status_code=404, detail="Message not found") from exc
+
+
 def _sse(event: str, data: str) -> str:
+    # json.dumps escapes control chars / quotes — safe for SSE data lines.
     payload = json.dumps({"text": data}) if event == "token" else json.dumps({"value": data})
     return f"event: {event}\ndata: {payload}\n\n"

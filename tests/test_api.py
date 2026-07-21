@@ -180,6 +180,38 @@ async def test_persistence_across_restart(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_rejects_sql_injection_conversation_id(client: AsyncClient):
+    response = await client.post(
+        "/chat",
+        json={
+            "question": "What are anemia symptoms?",
+            "conversationId": "'; DROP TABLE messages;--",
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_rejects_poisoned_message_id_lookup(client: AsyncClient):
+    response = await client.get("/chat/1%20OR%201=1")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rejects_null_byte_question(client: AsyncClient):
+    response = await client.post(
+        "/chat",
+        json={"question": "What is anemia?\u0000 DROP TABLE messages;"},
+    )
+    # Sanitized question should still be medical and accepted, without nulls.
+    assert response.status_code == 200
+    message_id = response.json()["messageId"]
+    data = await wait_for_completion(client, message_id)
+    assert data["status"] == "completed"
+    assert "\x00" not in data["answer"]
+
+
+@pytest.mark.asyncio
 async def test_streaming_endpoint(client: AsyncClient):
     submit = await client.post("/chat", json={"question": "What is diabetes?"})
     message_id = submit.json()["messageId"]

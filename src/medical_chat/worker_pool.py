@@ -110,6 +110,7 @@ class WorkerPool:
         history = self._store.conversation_history(
             message.conversation_id,
             before_message_id=message.message_id,
+            max_turns=20,
         )
 
         started = time.perf_counter()

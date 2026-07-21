@@ -54,8 +54,11 @@ class MessageStore:
         conversation_id: str,
         *,
         before_message_id: str | None = None,
+        max_turns: int = 20,
     ) -> list[ChatTurn]:
         """Return prior completed Q&A turns for agent-mode context."""
+        from medical_chat.sanitization import sanitize_stored_text
+
         with self._lock:
             message_ids = list(self._conversation_order.get(conversation_id, []))
             turns: list[ChatTurn] = []
@@ -65,10 +68,16 @@ class MessageStore:
                 message = self._messages.get(message_id)
                 if message is None or message.status != MessageStatus.COMPLETED:
                     continue
-                if not message.answer:
+                question = sanitize_stored_text(message.question)
+                answer = sanitize_stored_text(message.answer, max_length=8000)
+                if not question or not answer:
                     continue
-                turns.append(ChatTurn(role="user", content=message.question))
-                turns.append(ChatTurn(role="assistant", content=message.answer))
+                turns.append(ChatTurn(role="user", content=question))
+                turns.append(ChatTurn(role="assistant", content=answer))
+            # Keep only the most recent pairs (each pair = 2 turns).
+            max_items = max(0, max_turns)
+            if len(turns) > max_items:
+                turns = turns[-max_items:]
             return turns
 
 

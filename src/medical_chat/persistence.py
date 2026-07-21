@@ -5,10 +5,15 @@ from pathlib import Path
 
 from medical_chat.domain import ChatMessage
 from medical_chat.models import MessageStatus
+from medical_chat.sanitization import parse_uuid, sanitize_stored_text
 
 
 class SqlitePersistence:
-    """SQLite-backed persistence for chat messages across restarts."""
+    """SQLite-backed persistence for chat messages across restarts.
+
+    All queries use bound parameters (?) — never string-interpolated SQL —
+    to prevent SQL injection from user or stored content.
+    """
 
     def __init__(self, db_path: str) -> None:
         self._path = Path(db_path)
@@ -19,6 +24,9 @@ class SqlitePersistence:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
+        # Harden connection: ignore untrusted attached DBs / limit surprise.
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA secure_delete=ON")
         return connection
 
     def _init_schema(self) -> None:
@@ -55,9 +63,17 @@ class SqlitePersistence:
                 rows = connection.execute(
                     "SELECT * FROM messages ORDER BY created_at ASC"
                 ).fetchall()
-        return [self._row_to_message(row) for row in rows]
+        messages: list[ChatMessage] = []
+        for row in rows:
+            try:
+                messages.append(self._row_to_message(row))
+            except (ValueError, KeyError, TypeError):
+                # Skip poisoned / corrupt rows instead of failing startup.
+                continue
+        return messages
 
     def upsert(self, message: ChatMessage) -> None:
+        # IDs and status are system-controlled; still bind every value.
         with self._lock:
             with self._connect() as connection:
                 connection.execute(
@@ -96,19 +112,27 @@ class SqlitePersistence:
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> ChatMessage:
+        message_id = parse_uuid(row["message_id"], field_name="message_id")
+        conversation_id = parse_uuid(row["conversation_id"], field_name="conversation_id")
+        question = sanitize_stored_text(row["question"])
+        if question is None:
+            raise ValueError("invalid question")
+        answer = sanitize_stored_text(row["answer"], max_length=8000)
+        error = sanitize_stored_text(row["error"], max_length=2000)
+        status = MessageStatus(row["status"])
         completed_at = (
             datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
         )
         return ChatMessage(
-            question=row["question"],
-            message_id=row["message_id"],
-            conversation_id=row["conversation_id"],
-            status=MessageStatus(row["status"]),
-            answer=row["answer"],
-            error=row["error"],
+            question=question,
+            message_id=message_id,
+            conversation_id=conversation_id,
+            status=status,
+            answer=answer,
+            error=error,
             created_at=datetime.fromisoformat(row["created_at"]),
             completed_at=completed_at,
             processing_time_ms=row["processing_time_ms"],
-            tokens_used=row["tokens_used"] or 0,
-            retry_count=row["retry_count"] or 0,
+            tokens_used=int(row["tokens_used"] or 0),
+            retry_count=int(row["retry_count"] or 0),
         )
