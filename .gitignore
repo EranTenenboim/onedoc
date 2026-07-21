@@ -1,0 +1,65 @@
+# Bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging / build
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+*.whl
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.dmypy.json
+dmypy.json
+
+# Installer / tooling leftovers
+pip-log.txt
+pip-delete-this-directory.txt
+*.manifest
+*.spec
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+log/
+
+# OS / editor temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local agent / IDE
+.cursor/
