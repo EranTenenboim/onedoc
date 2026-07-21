@@ -122,8 +122,12 @@ curl -s http://localhost:8000/statistics
 
 ```bash
 source .venv/bin/activate
+pip install -e ".[dev]"   # includes pytest-cov
 pytest
 ```
+
+Coverage is enabled by default (`--cov=medical_chat`, fail under 70%).  
+OpenAI/Anthropic client modules are omitted from the coverage gate (need live API keys).
 
 ---
 

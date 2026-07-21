@@ -18,6 +18,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
     "httpx>=0.28.0",
     "asgi-lifespan>=2.1.0",
 ]
@@ -35,3 +36,25 @@ packages = ["src/medical_chat"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = [
+    "--cov=medical_chat",
+    "--cov-report=term-missing",
+    "--cov-fail-under=70",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["medical_chat"]
+omit = [
+    "*/medical_chat/llm/openai_client.py",
+    "*/medical_chat/llm/anthropic_client.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

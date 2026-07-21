@@ -8,7 +8,10 @@ from medical_chat.models import LLMProvider
 
 def create_llm_client(settings: Settings) -> BaseLLMClient:
     if settings.llm_provider == LLMProvider.MOCK:
-        return MockLLMClient()
+        return MockLLMClient(
+            fail_rate=settings.mock_fail_rate,
+            fail_times=settings.mock_fail_times,
+        )
     if settings.llm_provider == LLMProvider.OPENAI:
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")

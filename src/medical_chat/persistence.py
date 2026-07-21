@@ -24,14 +24,14 @@ class SqlitePersistence:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
-        # Harden connection: ignore untrusted attached DBs / limit surprise.
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA secure_delete=ON")
         return connection
 
     def _init_schema(self) -> None:
         with self._lock:
-            with self._connect() as connection:
+            connection = self._connect()
+            try:
                 connection.execute(
                     """
                     CREATE TABLE IF NOT EXISTS messages (
@@ -56,26 +56,30 @@ class SqlitePersistence:
                     """
                 )
                 connection.commit()
+            finally:
+                connection.close()
 
     def load_all(self) -> list[ChatMessage]:
         with self._lock:
-            with self._connect() as connection:
+            connection = self._connect()
+            try:
                 rows = connection.execute(
                     "SELECT * FROM messages ORDER BY created_at ASC"
                 ).fetchall()
+            finally:
+                connection.close()
         messages: list[ChatMessage] = []
         for row in rows:
             try:
                 messages.append(self._row_to_message(row))
             except (ValueError, KeyError, TypeError):
-                # Skip poisoned / corrupt rows instead of failing startup.
                 continue
         return messages
 
     def upsert(self, message: ChatMessage) -> None:
-        # IDs and status are system-controlled; still bind every value.
         with self._lock:
-            with self._connect() as connection:
+            connection = self._connect()
+            try:
                 connection.execute(
                     """
                     INSERT INTO messages (
@@ -109,6 +113,8 @@ class SqlitePersistence:
                     ),
                 )
                 connection.commit()
+            finally:
+                connection.close()
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> ChatMessage:

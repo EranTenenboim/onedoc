@@ -9,8 +9,9 @@ from medical_chat.llm.base import BaseLLMClient, LLMResult
 class MockLLMClient(BaseLLMClient):
     """Deterministic mock LLM for local development and tests."""
 
-    def __init__(self, *, fail_rate: float = 0.0) -> None:
+    def __init__(self, *, fail_rate: float = 0.0, fail_times: int = 0) -> None:
         self._fail_rate = fail_rate
+        self._fail_times = fail_times
 
     async def stream(
         self,
@@ -18,6 +19,9 @@ class MockLLMClient(BaseLLMClient):
         history: list[ChatTurn] | None = None,
     ) -> AsyncIterator[str]:
         await asyncio.sleep(random.uniform(0.05, 0.15))
+        if self._fail_times > 0:
+            self._fail_times -= 1
+            raise RuntimeError("Simulated LLM failure")
         if random.random() < self._fail_rate:
             raise RuntimeError("Simulated LLM failure")
 

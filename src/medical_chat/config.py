@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: float = Field(default=60.0, alias="RATE_LIMIT_WINDOW_SECONDS")
     sqlite_path: str = Field(default="data/medical_chat.db", alias="SQLITE_PATH")
     persistence_enabled: bool = Field(default=True, alias="PERSISTENCE_ENABLED")
+    mock_fail_times: int = Field(default=0, alias="MOCK_FAIL_TIMES")
+    mock_fail_rate: float = Field(default=0.0, alias="MOCK_FAIL_RATE")
 
     @property
     def max_workers(self) -> int:

@@ -140,7 +140,7 @@ class WorkerPool:
                     await asyncio.sleep(self._settings.retry_delay)
 
         elapsed_ms = (time.perf_counter() - started) * 1000
-        message.retry_count = max(0, retry_count - 1)
+        message.retry_count = retry_count
         message.completed_at = datetime.now(UTC)
         message.processing_time_ms = elapsed_ms
 
