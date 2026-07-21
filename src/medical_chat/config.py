@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     enforce_medical_only: bool = Field(default=True, alias="ENFORCE_MEDICAL_ONLY")
     rate_limit_requests: int = Field(default=20, alias="RATE_LIMIT_REQUESTS")
     rate_limit_window_seconds: float = Field(default=60.0, alias="RATE_LIMIT_WINDOW_SECONDS")
+    sqlite_path: str = Field(default="data/medical_chat.db", alias="SQLITE_PATH")
+    persistence_enabled: bool = Field(default=True, alias="PERSISTENCE_ENABLED")
 
     @property
     def max_workers(self) -> int:

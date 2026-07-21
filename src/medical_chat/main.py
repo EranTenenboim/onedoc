@@ -8,9 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from medical_chat.api import AppState, create_router
 from medical_chat.config import Settings, get_settings
 from medical_chat.llm.factory import create_llm_client
+from medical_chat.persistence import SqlitePersistence
 from medical_chat.rate_limit import RateLimiter
 from medical_chat.statistics import StatisticsCollector
 from medical_chat.storage import MessageQueue, MessageStore, SharedLog
+from medical_chat.stream_hub import StreamHub
 from medical_chat.worker_pool import WorkerPool
 
 
@@ -32,10 +34,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     static_dir = resolve_static_dir(settings)
 
-    store = MessageStore()
+    persistence = (
+        SqlitePersistence(settings.sqlite_path) if settings.persistence_enabled else None
+    )
+    store = MessageStore(persistence=persistence)
     queue = MessageQueue()
     shared_log = SharedLog(settings.log_file)
     stats = StatisticsCollector()
+    stream_hub = StreamHub()
     llm_client = create_llm_client(settings)
     worker_pool = WorkerPool(
         settings=settings,
@@ -44,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         shared_log=shared_log,
         llm_client=llm_client,
         stats=stats,
+        stream_hub=stream_hub,
     )
     rate_limiter = RateLimiter(
         max_requests=settings.rate_limit_requests,
@@ -56,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         worker_pool=worker_pool,
         stats=stats,
         rate_limiter=rate_limiter,
+        stream_hub=stream_hub,
     )
 
     @asynccontextmanager

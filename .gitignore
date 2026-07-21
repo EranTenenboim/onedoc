@@ -54,6 +54,11 @@ pip-delete-this-directory.txt
 logs/
 log/
 
+# Local data / SQLite
+data/
+*.db
+*.db-journal
+
 # OS / editor temp
 *.swp
 *.swo

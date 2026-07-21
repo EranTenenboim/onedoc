@@ -5,10 +5,11 @@ from uuid import uuid4
 
 from medical_chat.config import Settings
 from medical_chat.domain import InteractionLogEntry
-from medical_chat.llm.base import BaseLLMClient
+from medical_chat.llm.base import BaseLLMClient, LLMResult
 from medical_chat.models import MessageStatus
 from medical_chat.statistics import StatisticsCollector
 from medical_chat.storage import MessageQueue, MessageStore, SharedLog
+from medical_chat.stream_hub import StreamEvent, StreamHub
 
 
 class WorkerPool:
@@ -23,6 +24,7 @@ class WorkerPool:
         shared_log: SharedLog,
         llm_client: BaseLLMClient,
         stats: StatisticsCollector,
+        stream_hub: StreamHub,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -30,6 +32,7 @@ class WorkerPool:
         self._shared_log = shared_log
         self._llm_client = llm_client
         self._stats = stats
+        self._stream_hub = stream_hub
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._idle_workers: set[str] = set()
         self._active_workers: set[str] = set()
@@ -104,14 +107,30 @@ class WorkerPool:
         message.status = MessageStatus.PROCESSING
         self._store.update(message)
 
+        history = self._store.conversation_history(
+            message.conversation_id,
+            before_message_id=message.message_id,
+        )
+
         started = time.perf_counter()
         retry_count = 0
         last_error: str | None = None
-        result = None
+        result: LLMResult | None = None
 
         while retry_count <= self._settings.max_retries:
             try:
-                result = await self._llm_client.complete(message.question)
+                chunks: list[str] = []
+                async for chunk in self._llm_client.stream(message.question, history):
+                    chunks.append(chunk)
+                    await self._stream_hub.publish(
+                        message_id,
+                        StreamEvent(event="token", data=chunk),
+                    )
+                answer = "".join(chunks)
+                tokens = len(message.question.split()) + len(answer.split())
+                if history:
+                    tokens += sum(len(turn.content.split()) for turn in history)
+                result = LLMResult(answer=answer, tokens_used=tokens)
                 break
             except Exception as exc:  # noqa: BLE001 - retry boundary
                 last_error = str(exc)
@@ -143,6 +162,10 @@ class WorkerPool:
                     error=None,
                 )
             )
+            await self._stream_hub.publish(
+                message_id,
+                StreamEvent(event="done", data=result.answer),
+            )
         else:
             message.status = MessageStatus.FAILED
             message.error = last_error or "LLM request failed after retries"
@@ -157,8 +180,13 @@ class WorkerPool:
                     error=message.error,
                 )
             )
+            await self._stream_hub.publish(
+                message_id,
+                StreamEvent(event="error", data=message.error),
+            )
 
         self._store.update(message)
+        await self._stream_hub.close(message_id)
         self._queue.task_done()
         await self._release_worker(worker_id)
 

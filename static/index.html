@@ -7,20 +7,23 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
     textarea { width: 100%; min-height: 100px; }
-    button { margin-top: 0.5rem; padding: 0.5rem 1rem; }
+    button { margin-top: 0.5rem; margin-right: 0.5rem; padding: 0.5rem 1rem; }
     .response, .stats, .error { margin-top: 1.5rem; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; }
     .loading { color: #666; font-style: italic; }
     .error { border-color: #c00; color: #900; }
     pre { white-space: pre-wrap; word-break: break-word; }
+    .meta { color: #666; font-size: 0.9rem; }
   </style>
 </head>
 <body>
   <h1>Medical Expert AI Chat</h1>
   <p>Ask a medical question. Responses are for educational purposes only.</p>
+  <p class="meta">Agent-mode conversation is kept in this browser session. Answers stream as they arrive.</p>
 
   <label for="question">Your question</label>
   <textarea id="question" placeholder="What are the symptoms of iron deficiency?"></textarea>
   <button id="submit">Submit question</button>
+  <button id="new-chat" type="button">New conversation</button>
 
   <div id="status" class="response" hidden></div>
   <div id="answer" class="response" hidden></div>
@@ -30,7 +33,8 @@
   <div id="stats" class="stats" hidden></div>
 
   <script>
-    const POLL_INTERVAL_MS = 800;
+    const CONVERSATION_KEY = "medicalChatConversationId";
+    let conversationId = localStorage.getItem(CONVERSATION_KEY) || null;
 
     async function submitQuestion() {
       const question = document.getElementById("question").value.trim();
@@ -39,43 +43,95 @@
       const statusEl = document.getElementById("status");
       const answerEl = document.getElementById("answer");
       statusEl.hidden = false;
-      answerEl.hidden = true;
+      answerEl.hidden = false;
       answerEl.classList.remove("error");
-      statusEl.innerHTML = '<p class="loading">Processing your question…</p>';
+      statusEl.innerHTML = '<p class="loading">Streaming response…</p>';
+      answerEl.innerHTML = "<h2>Answer</h2><pre id='answer-text'></pre>";
+      const answerText = document.getElementById("answer-text");
+
+      const body = { question };
+      if (conversationId) body.conversationId = conversationId;
 
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify(body),
       });
-      const { messageId } = await res.json();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        statusEl.hidden = true;
+        answerEl.classList.add("error");
+        answerEl.innerHTML = `<h2>Error</h2><pre>${escapeHtml(err.detail || "Request failed")}</pre>`;
+        return;
+      }
 
-      await pollForResponse(messageId);
+      const data = await res.json();
+      conversationId = data.conversationId;
+      localStorage.setItem(CONVERSATION_KEY, conversationId);
+      await streamResponse(data.messageId, answerText, statusEl, answerEl);
+    }
+
+    async function streamResponse(messageId, answerText, statusEl, answerEl) {
+      return new Promise((resolve) => {
+        const source = new EventSource(`/chat/${messageId}/stream`);
+        let assembled = "";
+
+        source.addEventListener("token", (event) => {
+          const payload = JSON.parse(event.data);
+          assembled += payload.text || "";
+          answerText.textContent = assembled;
+        });
+
+        source.addEventListener("done", (event) => {
+          const payload = JSON.parse(event.data);
+          answerText.textContent = payload.value || assembled;
+          statusEl.hidden = true;
+          source.close();
+          resolve();
+        });
+
+        source.addEventListener("error", (event) => {
+          if (event.data) {
+            const payload = JSON.parse(event.data);
+            answerEl.classList.add("error");
+            answerEl.innerHTML = `<h2>Error</h2><pre>${escapeHtml(payload.value || "Stream failed")}</pre>`;
+          }
+          statusEl.hidden = true;
+          source.close();
+          resolve();
+        });
+
+        source.onerror = () => {
+          // Browser fires this on normal close too; only fall back if empty.
+          if (!assembled) {
+            statusEl.innerHTML = '<p class="loading">Waiting for response…</p>';
+            pollForResponse(messageId).then(resolve);
+          }
+          source.close();
+        };
+      });
     }
 
     async function pollForResponse(messageId) {
       const statusEl = document.getElementById("status");
       const answerEl = document.getElementById("answer");
-
       while (true) {
         const res = await fetch(`/chat/${messageId}`);
         const data = await res.json();
-
-        if (data.status === "processing") {
-          statusEl.innerHTML = '<p class="loading">Processing your question…</p>';
-        } else if (data.status === "completed") {
+        if (data.status === "completed") {
           statusEl.hidden = true;
           answerEl.hidden = false;
           answerEl.innerHTML = `<h2>Answer</h2><pre>${escapeHtml(data.answer)}</pre>`;
           return;
-        } else if (data.status === "failed") {
+        }
+        if (data.status === "failed") {
           statusEl.hidden = true;
           answerEl.hidden = false;
           answerEl.classList.add("error");
           answerEl.innerHTML = `<h2>Error</h2><pre>${escapeHtml(data.error)}</pre>`;
           return;
         }
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
 
@@ -88,14 +144,23 @@
       statsEl.innerHTML = `<h2>System statistics</h2><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
     }
 
+    function newConversation() {
+      conversationId = null;
+      localStorage.removeItem(CONVERSATION_KEY);
+      document.getElementById("answer").hidden = true;
+      document.getElementById("status").hidden = false;
+      document.getElementById("status").innerHTML = "<p>Started a new conversation.</p>";
+    }
+
     function escapeHtml(text) {
-      return text
+      return String(text)
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;");
     }
 
     document.getElementById("submit").addEventListener("click", submitQuestion);
+    document.getElementById("new-chat").addEventListener("click", newConversation);
     document.getElementById("load-stats").addEventListener("click", loadStatistics);
   </script>
 </body>

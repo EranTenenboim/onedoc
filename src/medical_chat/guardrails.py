@@ -1,7 +1,4 @@
 import re
-import threading
-import time
-from collections import defaultdict, deque
 
 MEDICAL_KEYWORDS = {
     "symptom",

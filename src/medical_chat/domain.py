@@ -5,10 +5,17 @@ from uuid import uuid4
 from medical_chat.models import MessageStatus
 
 
+@dataclass(frozen=True)
+class ChatTurn:
+    role: str
+    content: str
+
+
 @dataclass
 class ChatMessage:
     question: str
     message_id: str = field(default_factory=lambda: str(uuid4()))
+    conversation_id: str = field(default_factory=lambda: str(uuid4()))
     status: MessageStatus = MessageStatus.PENDING
     answer: str | None = None
     error: str | None = None

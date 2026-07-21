@@ -2,6 +2,8 @@
 
 Self-contained Python **3.13+** service with an HTTP API, async LLM workers, interaction logging, statistics, and a simple UI.
 
+Optional features included: **conversation history (agent-mode)**, **SQLite persistence**, and **SSE streaming**.
+
 ---
 
 ## Requirements
@@ -102,6 +104,14 @@ curl -s -X POST http://localhost:8000/chat \
 # Poll for the answer (replace MESSAGE_ID)
 curl -s http://localhost:8000/chat/MESSAGE_ID
 
+# Stream tokens (SSE)
+curl -N http://localhost:8000/chat/MESSAGE_ID/stream
+
+# Continue a conversation (agent-mode)
+curl -s -X POST http://localhost:8000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How is that treated?","conversationId":"CONVERSATION_ID"}'
+
 # Statistics
 curl -s http://localhost:8000/statistics
 ```
@@ -132,6 +142,8 @@ Set these in `.env` (see `.env.example`):
 | `MAX_RETRIES` | Max retry attempts | `3` |
 | `WORKER_IDLE_TIMEOUT` | Idle worker shutdown (seconds) | `30` |
 | `LOG_FILE` | Interaction log path | `logs/interactions.log` |
+| `SQLITE_PATH` | SQLite DB for persistence | `data/medical_chat.db` |
+| `PERSISTENCE_ENABLED` | Persist messages across restarts | `true` |
 | `ENFORCE_MEDICAL_ONLY` | Reject non-medical questions | `true` |
 | `RATE_LIMIT_REQUESTS` | Max requests per window | `20` |
 | `RATE_LIMIT_WINDOW_SECONDS` | Rate-limit window | `60` |

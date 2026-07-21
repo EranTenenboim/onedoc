@@ -1,21 +1,42 @@
 import asyncio
 import threading
 from pathlib import Path
+from uuid import uuid4
 
-from medical_chat.domain import ChatMessage, InteractionLogEntry
+from medical_chat.domain import ChatMessage, ChatTurn, InteractionLogEntry
+from medical_chat.models import MessageStatus
+from medical_chat.persistence import SqlitePersistence
 
 
 class MessageStore:
-    """Thread-safe in-memory message store."""
+    """Thread-safe message store with optional SQLite persistence."""
 
-    def __init__(self) -> None:
+    def __init__(self, persistence: SqlitePersistence | None = None) -> None:
         self._messages: dict[str, ChatMessage] = {}
+        self._conversation_order: dict[str, list[str]] = {}
         self._lock = threading.Lock()
+        self._persistence = persistence
+        if persistence is not None:
+            for message in persistence.load_all():
+                self._messages[message.message_id] = message
+                order = self._conversation_order.setdefault(message.conversation_id, [])
+                order.append(message.message_id)
 
-    def create(self, question: str) -> ChatMessage:
-        message = ChatMessage(question=question)
+    def create(
+        self,
+        question: str,
+        *,
+        conversation_id: str | None = None,
+    ) -> ChatMessage:
+        conversation_id = conversation_id or str(uuid4())
+        message = ChatMessage(question=question, conversation_id=conversation_id)
         with self._lock:
             self._messages[message.message_id] = message
+            self._conversation_order.setdefault(conversation_id, []).append(
+                message.message_id
+            )
+        if self._persistence is not None:
+            self._persistence.upsert(message)
         return message
 
     def get(self, message_id: str) -> ChatMessage | None:
@@ -25,6 +46,30 @@ class MessageStore:
     def update(self, message: ChatMessage) -> None:
         with self._lock:
             self._messages[message.message_id] = message
+        if self._persistence is not None:
+            self._persistence.upsert(message)
+
+    def conversation_history(
+        self,
+        conversation_id: str,
+        *,
+        before_message_id: str | None = None,
+    ) -> list[ChatTurn]:
+        """Return prior completed Q&A turns for agent-mode context."""
+        with self._lock:
+            message_ids = list(self._conversation_order.get(conversation_id, []))
+            turns: list[ChatTurn] = []
+            for message_id in message_ids:
+                if before_message_id is not None and message_id == before_message_id:
+                    break
+                message = self._messages.get(message_id)
+                if message is None or message.status != MessageStatus.COMPLETED:
+                    continue
+                if not message.answer:
+                    continue
+                turns.append(ChatTurn(role="user", content=message.question))
+                turns.append(ChatTurn(role="assistant", content=message.answer))
+            return turns
 
 
 class SharedLog:
